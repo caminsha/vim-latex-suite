@@ -31,6 +31,8 @@ let s:u_standsfor = 'type'
 let s:v_standsfor = 'volume'
 let s:y_standsfor = 'year'
 let s:z_standsfor = 'note'
+let s:U_standsfor = 'url'
+let s:A_standsfor = 'urldate'
 
 " }}}
 " Define the fields required for the various entry types {{{
@@ -96,6 +98,11 @@ let s:{'misc'}_required=""
 let s:{'misc'}_optional1="ath"
 let s:{'misc'}_optional2="myz"
 let s:{'misc'}_retval = '@MISC{' . s:key . ','."\n"
+
+let s:{'online'}_required="tUA" " r is title, U is URL, A is urldate
+let s:{'online'}_optional1="a" " a is author
+let s:{'online'}_optional2="my" " m is month, y is year
+let s:{'online'}_retval = '@ONLINE{' . s:key . ','."\n"
 
 let s:{'phdthesis'}_required="atry" " r is school
 let s:{'phdthesis'}_optional1="w" " w is address
@@ -164,6 +171,7 @@ function BibT(type, options, prompt)
 			\ 'manual'."\n".
 			\ 'msthesis'."\n".
 			\ 'misc'."\n".
+			\ 'online'."\n".
 			\ 'phdthesis'."\n".
 			\ 'proceedings'."\n".
 			\ 'techreport'."\n".

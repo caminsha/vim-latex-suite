@@ -573,26 +573,31 @@ function! Tex_PutEnvironment(env)
 		endif
 		return VEnclose('\begin{'.a:env.'}', '\end{'.a:env.'}', '\begin{'.a:env.'}', '\end{'.a:env.'}')
 	else
-		" The user can define something like 
+		" first check if the keyword has been set as an alias
+		let env = a:env
+		if exists("g:Tex_Env_{'".a:env."'}_aliasto")
+			let env = g:Tex_Env_{a:env}_aliasto
+		endif
+		" The user can define something like
 		" let g:Tex_Env_theorem = "\\begin{theorem}\<CR><++>\<CR>\\end{theorem}"
 		" This will effectively over-write the default definition of the
 		" theorem environment which uses a \label.
-		if exists("b:Tex_Env_{'".a:env."'}")
-			return IMAP_PutTextWithMovement(b:Tex_Env_{a:env})
-		elseif exists("g:Tex_Env_{'".a:env."'}")
-			return IMAP_PutTextWithMovement(g:Tex_Env_{a:env})
-		elseif a:env =~ '^\%(theorem\|definition\|lemma\|proposition\|corollary\|assumption\|remark\|equation\|align\*\|align\>\|multline\|subequations\)$'
-			return Tex_standard_env(a:env)
-		elseif a:env =~ '^\%(enumerate\|itemize\|theindex\|trivlist\)$'
-			return Tex_itemize(a:env)
-		elseif a:env =~ '^\%(table\|table*\)$'
-			return Tex_table(a:env)
-		elseif a:env =~ '^\%(tabular\|tabular*\|array\|array*\)$'
-			return Tex_tabular(a:env)
-		elseif a:env =~# '^\%(description\|figure\|list\|document\|minipage\|thebibliography\)$'
+		if exists("b:Tex_Env_{'".env."'}")
+			return IMAP_PutTextWithMovement(b:Tex_Env_{env})
+		elseif exists("g:Tex_Env_{'".env."'}")
+			return IMAP_PutTextWithMovement(g:Tex_Env_{env})
+		elseif env =~ '^\%(theorem\|definition\|lemma\|proposition\|corollary\|assumption\|remark\|equation\|align\*\|align\>\|multline\|subequations\)$'
+			return Tex_standard_env(env)
+		elseif env =~ '^\%(enumerate\|itemize\|theindex\|trivlist\)$'
+			return Tex_itemize(env)
+		elseif env =~ '^\%(table\|table*\)$'
+			return Tex_table(env)
+		elseif env =~ '^\%(tabular\|tabular*\|array\|array*\)$'
+			return Tex_tabular(env)
+		elseif env =~# '^\%(description\|figure\|list\|document\|minipage\|thebibliography\)$'
 			" Call spezialized functions
-			exe 'return Tex_'.a:env.'(a:env)'
-		elseif a:env == '\['
+			exe 'return Tex_'.env.'(env)'
+		elseif env == '\['
 			return IMAP_PutTextWithMovement("\\[\<CR><++>\<CR>\\]" . s:end_with_cr . "<++>")
 		else
 			" Look in supported packages if exists template for environment
@@ -601,14 +606,12 @@ function! Tex_PutEnvironment(env)
 				let i = 1
 				while Tex_Strntok(g:Tex_package_supported, ',', i) != ''
 					let checkpack = Tex_Strntok(g:Tex_package_supported, ',', i)
-					if g:TeX_package_{checkpack} =~ 'e..:'.a:env
-						if a:env =~ '*'
+					if g:TeX_package_{checkpack} =~ 'e..:'.env
+						if env =~ '*'
 							" Don't allow * to be treated as wildcard
-							let aenv = substitute(a:env, '*', '\\*', '')
-						else
-							let aenv = a:env
+							let env = substitute(env, '*', '\\*', '')
 						endif
-						let envcommand = matchstr(g:TeX_package_{checkpack}, '\zse..:'.aenv.'[^,]\{-}\ze,')
+						let envcommand = matchstr(g:TeX_package_{checkpack}, '\zse..:'.env.'[^,]\{-}\ze,')
 						return Tex_ProcessPackageCommand(envcommand)
 					endif
 					let i = i + 1
@@ -617,7 +620,7 @@ function! Tex_PutEnvironment(env)
 		endif
 		" If nothing before us managed to create an environment, then just
 		" create a bare-bones environment from the name.
-		return IMAP_PutTextWithMovement('\begin{'.a:env."}\<cr><++>\<cr>\\end{".a:env."}" . s:end_with_cr . "<++>")
+		return IMAP_PutTextWithMovement('\begin{'.env."}\<cr><++>\<cr>\\end{".env."}" . s:end_with_cr . "<++>")
 	endif
 endfunction " }}}
 " Mapping the <F5> key to insert/prompt for an environment/package {{{
@@ -734,17 +737,10 @@ if g:Tex_PromptedEnvironments != ''
 	"
 	function! Tex_ChangeEnvironments() 
 
-		let env_line = searchpair('\$\$\|\\\[\|\\begin{', '', '\$\$\|\\\]\|\\end{.\{-}}\zs', "bncW")
 
-		if env_line != 0
-			if getline(env_line) !~ 'begin{'
-				let env_name = '['
-			else
-				let env_name = matchstr(getline(env_line), 'begin{\zs.\{-}\ze}')
-			endif
-		endif
+		let env_name = Tex_GetCurrentEnv()
 		
-		if !exists('env_name')
+		if env_name == ''
 			echomsg "You are not inside environment"
 			return 0
 		endif
@@ -797,10 +793,23 @@ if g:Tex_PromptedEnvironments != ''
 			let second = '\end{' . a:env . '}'
 		endif
 
-		let bottom = searchpair('\\\[\|\\begin{','','\\\]\|\\end{','')
-		s/\\\]\|\\end{.\{-}}/\=second/
-		let top = searchpair('\\\[\|\\begin{','','\\\]\|\\end{','b')
-		s/\\\[\|\\begin{.\{-}}/\=first/
+		let match_no_comment = '\%(\\\@<!\%(\\\\\)*%.*\)\@<!'
+
+		let top = searchpair(match_no_comment . '\%(\\\[\|\\begin{.\{-}}\)','', match_no_comment . '\%(\\\]\|\\end{.\{-}}\)\zs','cbW')
+		let ix = getcurpos()[2]
+
+		if  getline(top)[ix-1:] !~# '^\\begin{'
+			let pat1 = '['
+			let pat2 = ']'
+		else
+			let pat1 = '}'
+			let pat2 = '}'
+		end
+
+		exe "normal cf" . pat1 . "\<c-r>=first\<c-m>"
+
+		let bottom = searchpair(match_no_comment . '\%(\\\[\|\\begin{\)','', match_no_comment . '\%(\\\]\|\\end{.\{-}}\)','W')
+		exe "normal cf" . pat2 . "\<c-r>=second\<c-m>"
 
 		if a:delete != ''
 			exe 'silent '. top . "," . bottom . 's/' . a:delete . '//e'
@@ -899,31 +908,29 @@ endfunction " }}}
 " Author: Alan Schmitt
 function! Tex_GetCurrentEnv()
 	let pos = Tex_GetPos()
-	let i = 0
-	while 1
-		let env_line = search('^[^%]*\\\%(begin\|end\){', 'bW')
-		if env_line == 0
-			" we reached the beginning of the file, so we return the empty string
-			call Tex_SetPos(pos)
-			return ''
-		endif
-		if match(getline(env_line), '^[^%]*\\begin{') == -1
-			" we found a \\end, so we keep searching
-			let i = i + 1
-			continue
+
+	let env_name = ''
+	let match_no_comment = '\%(\\\@<!\%(\\\\\)*%.*\)\@<!'
+
+	let env_line = searchpair(
+				\ match_no_comment . '\%(\$\$\|\\\[\|\\begin{\)',
+				\ '',
+				\ match_no_comment . '\%(\$\$\|\\\]\|\\end{.\{-}}\)\zs',
+				\ "bcW")
+
+	let ix = getcurpos()[2]
+
+	if env_line != 0
+		let line = getline(env_line)[ix-1:]
+		if line !~# '^\\begin{'
+			let env_name = '['
 		else
-			" we found a \\begin which has not been \\end'ed. we are done.
-			if i == 0
-				let env = matchstr(getline(env_line), '\\begin{\zs.\{-}\ze}')
-				call Tex_SetPos(pos)
-				return env
-			else
-				" this \\begin closes a \\end, continue searching.
-				let i = i - 1
-				continue
-			endif
+			let env_name = matchstr(line, '^\\begin{\zs.\{-}\ze}')
 		endif
-	endwhile
+	endif
+
+	call Tex_SetPos(pos)
+	return env_name
 endfunction
 " }}}
 " Tex_InsertItem: insert \item into a list   {{{
@@ -1049,14 +1056,18 @@ function! Tex_PutCommand(com, isvisual)
 			return VEnclose("\\".a:com.'{', '}', "\\".a:com.'{', '}')
 		endif
 	else
-		if exists('b:Tex_Com_{"'.a:com.'"}')
-			return IMAP_PutTextWithMovement(b:Tex_Com_{a:com})
-		elseif exists('g:Tex_Com_{"'.a:com.'"}')
-			return IMAP_PutTextWithMovement(g:Tex_Com_{a:com})
-		elseif a:com == '$'
+		let com = a:com
+		if exists('g:Tex_Com_{"'.a:com.'"}_aliasto')
+			let com = g:Tex_Com_{a:com}_aliasto
+		endif
+		if exists('b:Tex_Com_{"'.com.'"}')
+			return IMAP_PutTextWithMovement(b:Tex_Com_{com})
+		elseif exists('g:Tex_Com_{"'.com.'"}')
+			return IMAP_PutTextWithMovement(g:Tex_Com_{com})
+		elseif com == '$'
 			return IMAP_PutTextWithMovement('$<++>$')
 		else
-			return IMAP_PutTextWithMovement("\\".a:com.'{<++>}<++>')
+			return IMAP_PutTextWithMovement("\\".com.'{<++>}<++>')
 		endif
 	endif
 endfunction " }}}
